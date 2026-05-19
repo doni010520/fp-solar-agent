@@ -1,0 +1,12 @@
+.env
+.env.local
+__pycache__
+*.pyc
+.venv
+venv
+.git
+.gitignore
+.claude
+n8n_dump
+README.md
+*.md
