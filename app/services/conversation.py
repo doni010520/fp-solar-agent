@@ -14,7 +14,10 @@ from loguru import logger
 from app.services import contact_updater, openai_service
 from app.services.buffer import PendingMessage, buffer
 from app.services.media_processor import process_media
+from app.core.config import get_settings
 from app.services.uazapi import uazapi
+
+settings = get_settings()
 
 
 async def handle_incoming(parsed: dict) -> None:
@@ -24,6 +27,12 @@ async def handle_incoming(parsed: dict) -> None:
     msg_type = parsed.get("type", "text")
     message_id = parsed.get("message_id", "")
     push_name = parsed.get("push_name", "")
+
+    # Allowlist (modo teste). Se ALLOWED_PHONES estiver vazio, deixa passar tudo.
+    allowed = settings.allowed_phones_set
+    if allowed and phone not in allowed:
+        logger.info(f"[conv] phone={phone} não está na allowlist, ignorando")
+        return
 
     lead = await contact_updater.get_or_create_lead(phone, push_name)
 
