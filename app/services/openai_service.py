@@ -85,6 +85,35 @@ TOOLS = [
 ]
 
 
+_NAMES_GENERIC = {
+    "cliente", "usuario", "usuário", "contato", "suporte", "atendimento",
+    "vendedor", "corretor", "gerente", "diretor", "engenheiro", "tecnico",
+    "técnico", "lead", "user", "guest", "anonimo", "anônimo", "sem nome",
+    "whatsapp", "comercial",
+}
+
+
+def _nome_valido(name: str | None) -> str | None:
+    """Retorna o primeiro nome se push_name parecer um nome humano real;
+    None caso pareça empresa/genérico/telefone/etc."""
+    if not name:
+        return None
+    n = name.strip()
+    if not n:
+        return None
+    # Rejeita se tem dígito, @, + (telefones/emails)
+    if any(c.isdigit() or c in "@+" for c in n):
+        return None
+    # Rejeita se for palavra genérica
+    if n.lower() in _NAMES_GENERIC:
+        return None
+    # Rejeita se for muito curto
+    first = n.split()[0]
+    if len(first) < 2:
+        return None
+    return first.capitalize()
+
+
 def _saudacao_por_horario(hora: int) -> str:
     if 5 <= hora < 12:
         return "Bom dia"
@@ -96,13 +125,28 @@ def _saudacao_por_horario(hora: int) -> str:
 def _build_context_header(lead: Lead) -> str:
     now = datetime.now(ZoneInfo(settings.timezone))
     saudacao = _saudacao_por_horario(now.hour)
+
+    # Decide se já temos um nome utilizável
+    nome_uso = _nome_valido(lead.full_name) or _nome_valido(lead.push_name)
+
+    if nome_uso:
+        diretiva_nome = (
+            f"- **NOME DO CLIENTE: \"{nome_uso}\"** — JÁ SABEMOS o nome. "
+            f"USE \"{nome_uso}\" em TODAS as saudações e respostas. "
+            f"**NÃO pergunte o nome de novo.**"
+        )
+    else:
+        diretiva_nome = (
+            f"- **Nome do cliente AINDA NÃO INFORMADO** (push_name='{lead.push_name or ''}'). "
+            f"**Pergunte o nome no primeiro turno**, sem usar nenhum nome até o cliente responder."
+        )
+
     return (
         f"# CONTEXTO DA CONVERSA\n"
         f"- Data/Hora: {now.strftime('%A, %d/%m/%Y %H:%M')}\n"
         f"- **Saudação correta agora: \"{saudacao}\"** — use EXATAMENTE essa saudação ao abrir a conversa.\n"
         f"- WhatsApp: {lead.telefone}\n"
-        f"- Nome no WhatsApp: {lead.push_name or '(não disponível)'}\n"
-        f"- Nome cadastrado: {lead.full_name or '(ainda não coletado)'}\n"
+        f"{diretiva_nome}\n"
     )
 
 
