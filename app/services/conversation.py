@@ -55,19 +55,26 @@ async def handle_incoming(parsed: dict) -> None:
 
     await contact_updater.touch_last_contact(phone)
 
+    # Tipos descartáveis (não devem virar conversa)
+    DISCARD = {"sticker", "reaction", "location", "contact", "poll", "poll_update", "view_once"}
+
     if msg_type in ("audio", "image", "document"):
         try:
             body = await process_media(msg_type, message_id, caption=body)
         except Exception as e:
             logger.exception(f"media_processor falhou: {e}")
             body = f"[{msg_type} recebido]"
-    elif msg_type not in ("text",):
-        # tipos não suportados (sticker, location, etc.) — registra mas não processa
-        logger.info(f"[conv] tipo não suportado ignorado: {msg_type}")
+    elif msg_type in DISCARD:
+        logger.info(f"[conv] tipo descartado: {msg_type}")
         return
+    else:
+        # Qualquer outro tipo (text, extendedTextMessage, tipos desconhecidos)
+        # é tratado como texto se houver body. Se body vazio, ignora.
+        if msg_type != "text":
+            logger.info(f"[conv] tipo {msg_type!r} tratado como texto (body={len(body)} chars)")
 
     if not body:
-        logger.info(f"[conv] body vazio para {phone}, ignorando")
+        logger.info(f"[conv] body vazio para {phone} (msg_type={msg_type}), ignorando")
         return
 
     # marca como lida (UX)

@@ -24,7 +24,18 @@ async def uazapi_webhook(request: Request) -> dict:
 
     parsed = uazapi.parse_webhook(payload)
     if not parsed:
+        # Loga o messageType original quando não conseguimos parsear (debug)
+        msg = payload.get("message") or payload.get("data") or {}
+        mtype = msg.get("messageType") or msg.get("type")
+        from_me = msg.get("fromMe")
+        is_group = msg.get("isGroup")
+        logger.info(f"webhook skipped: event={payload.get('EventType') or payload.get('event')} type={mtype} fromMe={from_me} isGroup={is_group}")
         return {"ok": True, "skipped": True}
+
+    logger.info(
+        f"webhook parsed: phone={parsed['phone']} type={parsed['type']} "
+        f"(raw={parsed.get('type_raw')}) body_len={len(parsed.get('body',''))}"
+    )
 
     try:
         await handle_incoming(parsed)
