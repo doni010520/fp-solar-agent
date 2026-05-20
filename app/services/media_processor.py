@@ -46,17 +46,30 @@ async def process_audio(message_id: str) -> str:
 
 
 async def process_image(message_id: str, caption: str = "") -> str:
-    """Descreve a imagem usando gpt-4o vision a partir da URL pública do uazapi."""
+    """Descreve a imagem usando gpt-4o vision com foco em conta de luz e telhado."""
     url = await uazapi.get_media_url(message_id)
     if not url:
         return "[imagem recebida, mas não foi possível acessar]"
 
     try:
         prompt = (
-            "Descreva objetivamente o conteúdo desta imagem em português. "
-            "Se for uma conta de luz, extraia: titular, endereço, valor total, "
-            "consumo em kWh, mês de referência. Se for foto de telhado, descreva o tipo. "
-            "Seja conciso."
+            "Analise esta imagem enviada por um cliente que está pedindo orçamento de energia solar. "
+            "Classifique em uma destas categorias e responda em português:\n\n"
+            "1. **CONTA DE LUZ** — extraia os seguintes dados, marcando 'não visível' quando faltar:\n"
+            "   - Titular: nome\n"
+            "   - Endereço (cidade/UF)\n"
+            "   - Concessionária (Coelba, Equatorial, Cemig, etc.)\n"
+            "   - Mês de referência\n"
+            "   - Valor total da fatura (R$)\n"
+            "   - Consumo do mês (kWh)\n"
+            "   - Tipo de ligação (Monofásica / Bifásica / Trifásica)\n"
+            "   - **Histórico de consumo dos últimos 12 meses (kWh)** — se houver gráfico ou tabela, "
+            "liste mês a mês. Esse dado é CRÍTICO. Se não estiver visível, diga 'gráfico de 12 meses NÃO VISÍVEL'.\n"
+            "   - Média mensal estimada (kWh)\n\n"
+            "2. **FOTO DE TELHADO** — descreva: tipo (colonial barro / zinco / eternit / laje), "
+            "estado de conservação, área aproximada se der pra estimar, orientação solar se for visível.\n\n"
+            "3. **OUTRO** — descreva em uma linha o que é.\n\n"
+            "Comece sua resposta com o prefixo `CATEGORIA: <nome>` e depois os dados. Seja objetiva."
         )
         if caption:
             prompt += f"\n\nLegenda enviada pelo cliente: {caption}"
@@ -68,13 +81,20 @@ async def process_image(message_id: str, caption: str = "") -> str:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": url}},
+                        {"type": "image_url", "image_url": {"url": url, "detail": "high"}},
                     ],
                 }
             ],
-            max_tokens=400,
+            max_tokens=700,
         )
-        return f"[imagem]: {resp.choices[0].message.content}"
+        analysis = resp.choices[0].message.content or ""
+        # Prefixo dinâmico: se for conta de luz, marca explicitamente pra Lara
+        first_line = analysis.strip().splitlines()[0] if analysis else ""
+        if "CONTA DE LUZ" in first_line.upper():
+            return f"[conta de luz]:\n{analysis}"
+        if "TELHADO" in first_line.upper():
+            return f"[foto de telhado]:\n{analysis}"
+        return f"[imagem]:\n{analysis}"
     except Exception as e:
         logger.error(f"Vision falhou: {e}")
         return "[imagem recebida, mas não foi possível analisar]"

@@ -85,11 +85,21 @@ TOOLS = [
 ]
 
 
+def _saudacao_por_horario(hora: int) -> str:
+    if 5 <= hora < 12:
+        return "Bom dia"
+    if 12 <= hora < 18:
+        return "Boa tarde"
+    return "Boa noite"
+
+
 def _build_context_header(lead: Lead) -> str:
     now = datetime.now(ZoneInfo(settings.timezone))
+    saudacao = _saudacao_por_horario(now.hour)
     return (
         f"# CONTEXTO DA CONVERSA\n"
         f"- Data/Hora: {now.strftime('%A, %d/%m/%Y %H:%M')}\n"
+        f"- **Saudação correta agora: \"{saudacao}\"** — use EXATAMENTE essa saudação ao abrir a conversa.\n"
         f"- WhatsApp: {lead.telefone}\n"
         f"- Nome no WhatsApp: {lead.push_name or '(não disponível)'}\n"
         f"- Nome cadastrado: {lead.full_name or '(ainda não coletado)'}\n"
