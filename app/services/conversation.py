@@ -11,7 +11,7 @@ Fluxo (cada mensagem do cliente):
 
 from loguru import logger
 
-from app.services import contact_updater, openai_service
+from app.services import contact_updater, openai_service, admin_commands
 from app.services.buffer import PendingMessage, buffer
 from app.services.media_processor import process_media
 from app.core.config import get_settings
@@ -35,6 +35,19 @@ async def handle_incoming(parsed: dict) -> None:
         return
 
     lead = await contact_updater.get_or_create_lead(phone, push_name)
+
+    # ── Admin commands (interceptam antes do LLM) ────────────
+    # Funcionam mesmo com IA desligada (pra permitir /ia on, /reset, etc.)
+    if msg_type == "text" and body and admin_commands.is_command(body):
+        reply = await admin_commands.handle(phone, body)
+        if reply is not None:
+            try:
+                if message_id:
+                    await uazapi.mark_read(message_id)
+            except Exception:
+                pass
+            await uazapi.send_text(phone, reply, delay=500)
+            return
 
     if lead.ia_on_off == "OFF":
         logger.info(f"[conv] IA OFF para {phone}, ignorando mensagem")
