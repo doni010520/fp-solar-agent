@@ -1,5 +1,6 @@
 .env
 .env.local
+admin_token.txt
 __pycache__/
 *.pyc
 *.pyo

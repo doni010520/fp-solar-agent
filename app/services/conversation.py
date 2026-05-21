@@ -40,9 +40,12 @@ async def handle_incoming(parsed: dict) -> None:
     # Diferenciamos pelo messageid: se está no nosso DB, fomos nós; senão, é humano.
     if parsed.get("from_me"):
         message_id = parsed.get("message_id", "")
-        if await contact_updater.is_our_outbound_message(message_id):
-            return  # eco da própria Lara, ignora
-        # Humano assumiu — desativa IA pra esse contato
+        logger.info(f"[conv] fromMe webhook phone={phone} msgid={message_id} body={(body or '')[:80]!r}")
+        # Janela de 60s: se Lara respondeu recentemente, presume que é eco
+        if await contact_updater.is_our_outbound_message(message_id, phone=phone, window_seconds=60):
+            logger.info(f"[conv] fromMe identificado como eco da Lara, ignorando")
+            return
+        # Sem msg recente nossa → humano assumiu
         lead_existing = await contact_updater.get_or_create_lead(phone, push_name)
         if lead_existing.ia_on_off == "ON":
             await contact_updater.disable_ia(phone, "atendimento_humano")

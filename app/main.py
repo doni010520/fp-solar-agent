@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from loguru import logger
 
-from app.api import health, webhook
+from app.api import dashboard, health, webhook
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 
@@ -19,3 +19,4 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="FP Solar Agent — Lara", version="0.1.0", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(webhook.router)
+app.include_router(dashboard.router)

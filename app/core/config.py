@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # Use só dígitos, com DDI. Ex: ALLOWED_PHONES=5573999000111,5511988887777
     allowed_phones: str = ""
 
+    # Token de acesso ao /admin/dashboard
+    admin_token: str = ""
+
     @property
     def allowed_phones_set(self) -> set[str]:
         if not self.allowed_phones.strip():
