@@ -34,6 +34,21 @@ async def handle_incoming(parsed: dict) -> None:
         logger.info(f"[conv] phone={phone} não está na allowlist, ignorando")
         return
 
+    # ── Detecção de tomada de atendimento por humano ──────────
+    # fromMe=true significa que a mensagem partiu da própria conta da FP Solar.
+    # Pode ser: (a) eco da própria Lara via API; (b) humano respondendo via app/web.
+    # Diferenciamos pelo messageid: se está no nosso DB, fomos nós; senão, é humano.
+    if parsed.get("from_me"):
+        message_id = parsed.get("message_id", "")
+        if await contact_updater.is_our_outbound_message(message_id):
+            return  # eco da própria Lara, ignora
+        # Humano assumiu — desativa IA pra esse contato
+        lead_existing = await contact_updater.get_or_create_lead(phone, push_name)
+        if lead_existing.ia_on_off == "ON":
+            await contact_updater.disable_ia(phone, "atendimento_humano")
+            logger.info(f"[conv] humano assumiu phone={phone}, IA desligada")
+        return
+
     lead = await contact_updater.get_or_create_lead(phone, push_name)
 
     # ── Admin commands (interceptam antes do LLM) ────────────
@@ -46,7 +61,12 @@ async def handle_incoming(parsed: dict) -> None:
                     await uazapi.mark_read(message_id)
             except Exception:
                 pass
-            await uazapi.send_text(phone, reply, delay=500)
+            # Salva a resposta do comando como assistant + grava o wpp_id
+            # pra não confundir com humano no eco do webhook.
+            saved = await contact_updater.save_message(lead.id, "assistant", reply)
+            result = await uazapi.send_text(phone, reply, delay=500)
+            if result and result.get("messageid"):
+                await contact_updater.set_message_wpp_id(saved.id, result["messageid"])
             return
 
     if lead.ia_on_off == "OFF":
@@ -137,5 +157,9 @@ async def _flush(phone: str, messages: list[PendingMessage]) -> None:
         )
 
     if reply:
-        await contact_updater.save_message(lead.id, "assistant", reply)
-        await uazapi.send_text(phone, reply, delay=1500)
+        saved = await contact_updater.save_message(lead.id, "assistant", reply)
+        result = await uazapi.send_text(phone, reply, delay=1500)
+        # Grava o messageid retornado pelo uazapi pra reconhecer eco no webhook
+        # (e diferenciar de tomada por humano).
+        if result and result.get("messageid"):
+            await contact_updater.set_message_wpp_id(saved.id, result["messageid"])

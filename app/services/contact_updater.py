@@ -89,6 +89,34 @@ async def save_message(
         return msg
 
 
+async def set_message_wpp_id(message_pk: uuid.UUID, wpp_id: str) -> None:
+    """Grava o messageid retornado pela uazapi após enviar a mensagem.
+    Usado pra diferenciar echo da própria IA vs humano assumindo a conversa."""
+    if not wpp_id:
+        return
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Message).where(Message.id == message_pk))
+        msg = result.scalar_one_or_none()
+        if msg:
+            msg.message_id_wpp = wpp_id
+            await session.commit()
+
+
+async def is_our_outbound_message(wpp_id: str) -> bool:
+    """True se esse messageid foi enviado por NÓS (Lara via API).
+    Usado pra ignorar echos de fromMe que são nossos."""
+    if not wpp_id:
+        return False
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Message).where(
+                Message.message_id_wpp == wpp_id,
+                Message.role == "assistant",
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+
 async def load_history(lead_id: uuid.UUID, limit: int = 30) -> list[Message]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(

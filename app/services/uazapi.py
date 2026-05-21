@@ -151,8 +151,8 @@ class UazapiClient:
 
             msg = payload.get("message") or payload.get("data", {})
 
-            if msg.get("fromMe", False):
-                return None
+            # NÃO descartamos fromMe aqui — quem decide é o handler de conversa
+            # (precisa diferenciar echo da própria Lara vs humano assumindo).
             if msg.get("isGroup", False):
                 return None
 
@@ -187,6 +187,7 @@ class UazapiClient:
                 "quoted_id": msg.get("quoted", ""),
                 "timestamp": msg.get("messageTimestamp", 0),
                 "content": msg.get("content", {}),
+                "from_me": bool(msg.get("fromMe", False)),
             }
         except Exception as e:
             logger.error(f"Error parsing webhook: {e}")
