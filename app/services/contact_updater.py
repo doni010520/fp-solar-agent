@@ -102,41 +102,17 @@ async def set_message_wpp_id(message_pk: uuid.UUID, wpp_id: str) -> None:
             await session.commit()
 
 
-async def is_our_outbound_message(wpp_id: str, phone: str | None = None, window_seconds: int = 60) -> bool:
-    """True se esse fromMe=true é provavelmente eco da própria Lara.
-
-    Estratégia dupla pra evitar race condition na escrita do message_id_wpp:
-    1. Match exato no message_id_wpp (caminho ideal, quando set_message_wpp_id
-       já gravou)
-    2. Fallback temporal: se o lead recebeu QUALQUER resposta assistant nos
-       últimos `window_seconds`, presumimos que esse fromMe é eco.
-    """
-    if wpp_id:
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(Message).where(
-                    Message.message_id_wpp == wpp_id,
-                    Message.role == "assistant",
-                )
-            )
-            if result.scalar_one_or_none():
-                return True
-
-    if not phone:
+async def is_our_outbound_message(wpp_id: str) -> bool:
+    """Fallback persistente — match exato no message_id_wpp.
+    O caminho rápido é uazapi.is_outbound() (cache em memória)."""
+    if not wpp_id:
         return False
-
-    from datetime import datetime, timedelta, timezone
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Message)
-            .join(Lead, Message.lead_id == Lead.id)
-            .where(
-                Lead.telefone == phone,
+            select(Message).where(
+                Message.message_id_wpp == wpp_id,
                 Message.role == "assistant",
-                Message.created_at >= cutoff,
             )
-            .limit(1)
         )
         return result.scalar_one_or_none() is not None
 

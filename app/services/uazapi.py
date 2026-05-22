@@ -10,11 +10,38 @@ Endpoints from OpenAPI spec v2.1.0:
 Baseado no liriel-agent (doi010520/liriel-agent).
 """
 
+from collections import deque
 import httpx
 from loguru import logger
 from app.core.config import get_settings
 
 settings = get_settings()
+
+# ── Cache em memória dos messageids que NÓS enviamos (LRU bounded) ──
+# Permite detecção determinística de "humano assumiu":
+# se um fromMe=true chega e o id não está aqui → veio do WhatsApp humano.
+_SENT_IDS_MAX = 5000
+_sent_ids: set[str] = set()
+_sent_ids_order: deque[str] = deque()
+
+
+def mark_outbound(message_id: str) -> None:
+    """Registra um messageid que acabamos de enviar via API.
+    Chamado SÍNCRONO, sem await, logo após uazapi.send_text retornar."""
+    if not message_id:
+        return
+    if message_id in _sent_ids:
+        return
+    _sent_ids.add(message_id)
+    _sent_ids_order.append(message_id)
+    while len(_sent_ids_order) > _SENT_IDS_MAX:
+        old = _sent_ids_order.popleft()
+        _sent_ids.discard(old)
+
+
+def is_outbound(message_id: str) -> bool:
+    """True se NÓS enviamos essa mensagem (está no cache em memória)."""
+    return bool(message_id) and message_id in _sent_ids
 
 
 class UazapiClient:
@@ -38,7 +65,10 @@ class UazapiClient:
             payload["delay"] = delay
         if reply_id:
             payload["replyid"] = reply_id
-        return await self._post("/send/text", payload)
+        result = await self._post("/send/text", payload)
+        if result and result.get("messageid"):
+            mark_outbound(result["messageid"])
+        return result
 
     async def send_media(self, phone: str, media_type: str, file: str, caption: str = "", doc_name: str = "") -> dict | None:
         payload: dict = {"number": phone, "type": media_type, "file": file}
@@ -46,7 +76,10 @@ class UazapiClient:
             payload["text"] = caption
         if doc_name:
             payload["docName"] = doc_name
-        return await self._post("/send/media", payload)
+        result = await self._post("/send/media", payload)
+        if result and result.get("messageid"):
+            mark_outbound(result["messageid"])
+        return result
 
     # ── Presence / Read (UX) ─────────────────────────────────
 

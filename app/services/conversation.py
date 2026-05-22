@@ -40,16 +40,19 @@ async def handle_incoming(parsed: dict) -> None:
     # Diferenciamos pelo messageid: se está no nosso DB, fomos nós; senão, é humano.
     if parsed.get("from_me"):
         message_id = parsed.get("message_id", "")
-        logger.info(f"[conv] fromMe webhook phone={phone} msgid={message_id} body={(body or '')[:80]!r}")
-        # Janela de 60s: se Lara respondeu recentemente, presume que é eco
-        if await contact_updater.is_our_outbound_message(message_id, phone=phone, window_seconds=60):
-            logger.info(f"[conv] fromMe identificado como eco da Lara, ignorando")
+        logger.info(f"[conv] fromMe phone={phone} msgid={message_id} body={(body or '')[:80]!r}")
+        # Cache em memória dos messageids que ENVIAMOS via API.
+        # Se o id está lá → eco da Lara (sem race condition, sem heurística).
+        if uazapi.is_outbound(message_id):
             return
-        # Sem msg recente nossa → humano assumiu
+        # Fallback: olha no DB (caso o cache em memória tenha sido perdido em restart)
+        if message_id and await contact_updater.is_our_outbound_message(message_id):
+            return
+        # Não é nosso → humano assumiu o WhatsApp
         lead_existing = await contact_updater.get_or_create_lead(phone, push_name)
         if lead_existing.ia_on_off == "ON":
             await contact_updater.disable_ia(phone, "atendimento_humano")
-            logger.info(f"[conv] humano assumiu phone={phone}, IA desligada")
+            logger.info(f"[conv] humano assumiu phone={phone}, IA OFF automático")
         return
 
     lead = await contact_updater.get_or_create_lead(phone, push_name)
