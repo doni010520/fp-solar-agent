@@ -18,3 +18,6 @@ def setup_logging() -> None:
         colorize=True,
         enqueue=False,
     )
+    # Ring buffer em memória pra leitura via /admin/logs
+    from app.core.log_buffer import install as install_ring
+    install_ring()

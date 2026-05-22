@@ -128,6 +128,18 @@ async def _collect_stats() -> dict:
     }
 
 
+@router.get("/logs")
+async def logs_tail(
+    token: str = Query(...),
+    n: int = Query(200, ge=1, le=2000),
+    contains: str | None = Query(None),
+) -> JSONResponse:
+    """Últimas N linhas do ring buffer de logs (texto plano)."""
+    await _check_token(token)
+    from app.core.log_buffer import tail
+    return JSONResponse({"lines": tail(n, contains)})
+
+
 @router.get("/conversas.json")
 async def conversas_json(
     token: str = Query(...),
