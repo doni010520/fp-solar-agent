@@ -21,13 +21,25 @@ _openai = AsyncOpenAI(api_key=settings.openai_api_key)
 
 async def process_audio(message_id: str) -> str:
     """Tenta transcrição embutida do uazapi; se falhar, baixa e usa Whisper OpenAI."""
-    transcription = await uazapi.transcribe_audio(message_id)
+    logger.info(f"[audio] iniciando transcrição msgid={message_id}")
+    try:
+        transcription = await uazapi.transcribe_audio(message_id)
+    except Exception as e:
+        logger.error(f"[audio] transcribe_audio raised: {type(e).__name__}: {e}")
+        transcription = None
+
     if transcription:
+        logger.info(f"[audio] uazapi transcreveu ({len(transcription)} chars)")
         return f"[áudio transcrito]: {transcription}"
 
-    logger.warning(f"uazapi transcribe falhou para {message_id}; tentando OpenAI Whisper")
-    url = await uazapi.get_media_url(message_id)
+    logger.warning(f"[audio] uazapi transcribe vazio/falho msgid={message_id}; tentando OpenAI Whisper")
+    try:
+        url = await uazapi.get_media_url(message_id)
+    except Exception as e:
+        logger.error(f"[audio] get_media_url raised: {type(e).__name__}: {e}")
+        url = None
     if not url:
+        logger.warning(f"[audio] sem URL pra baixar msgid={message_id}")
         return "[áudio recebido, mas não foi possível transcrever]"
 
     try:
@@ -35,13 +47,15 @@ async def process_audio(message_id: str) -> str:
             r = await client.get(url)
             r.raise_for_status()
             audio_bytes = r.content
+        logger.info(f"[audio] baixou {len(audio_bytes)} bytes, chamando Whisper")
         result = await _openai.audio.transcriptions.create(
             model=settings.openai_transcribe_model,
             file=("audio.ogg", audio_bytes, "audio/ogg"),
         )
+        logger.info(f"[audio] Whisper OK ({len(result.text)} chars)")
         return f"[áudio transcrito]: {result.text}"
     except Exception as e:
-        logger.error(f"OpenAI Whisper falhou: {e}")
+        logger.error(f"[audio] Whisper falhou: {type(e).__name__}: {e}")
         return "[áudio recebido, mas não foi possível transcrever]"
 
 

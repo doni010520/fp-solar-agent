@@ -122,8 +122,10 @@ async def handle_incoming(parsed: dict) -> None:
     DISCARD = {"sticker", "reaction", "location", "contact", "poll", "poll_update", "view_once"}
 
     if msg_type in ("audio", "image", "document"):
+        logger.info(f"[conv] mídia tipo={msg_type} msgid={message_id} caption={(body or '')[:60]!r}")
         try:
             body = await process_media(msg_type, message_id, caption=body)
+            logger.info(f"[conv] mídia processada body_len={len(body)} prefix={(body or '')[:80]!r}")
         except Exception as e:
             logger.exception(f"media_processor falhou: {e}")
             body = f"[{msg_type} recebido]"
