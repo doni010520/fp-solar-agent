@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.db import AsyncSessionLocal, engine
 from app.models import Lead, Message, Notification
 from app.services.uazapi import uazapi
+from app.services import contact_updater
 
 settings = get_settings()
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -127,6 +128,201 @@ async def _collect_stats() -> dict:
     }
 
 
+@router.get("/conversas.json")
+async def conversas_json(
+    token: str = Query(...),
+    limit: int = Query(20, ge=1, le=200),
+) -> JSONResponse:
+    await _check_token(token)
+    async with AsyncSessionLocal() as s:
+        rows = (await s.execute(
+            select(Lead)
+            .order_by(Lead.updated_at.desc())
+            .limit(limit)
+        )).scalars().all()
+        out = []
+        for l in rows:
+            # Conta mensagens
+            n_msgs = (await s.execute(
+                select(func.count(Message.id)).where(Message.lead_id == l.id)
+            )).scalar() or 0
+            # Última mensagem do usuário
+            last_user = (await s.execute(
+                select(Message)
+                .where(Message.lead_id == l.id, Message.role == "user")
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            out.append({
+                "telefone": l.telefone,
+                "nome": l.full_name or l.push_name or "(sem nome)",
+                "ia": l.ia_on_off,
+                "status": l.status_funil_vendas,
+                "tipo_projeto": l.tipo_projeto,
+                "cidade": l.cidade,
+                "ultimo_contato": l.ultimo_contato.isoformat() if l.ultimo_contato else None,
+                "updated_at": l.updated_at.isoformat(),
+                "total_mensagens": n_msgs,
+                "ultima_msg_user": (last_user.content[:140] if last_user else None),
+            })
+    return JSONResponse({"conversas": out})
+
+
+@router.post("/lead/{phone}/ia")
+async def toggle_ia(phone: str, status: str = Query(..., regex="^(ON|OFF)$"), token: str = Query(...)) -> JSONResponse:
+    await _check_token(token)
+    if status == "OFF":
+        await contact_updater.disable_ia(phone, "atendimento_humano")
+    else:
+        await contact_updater.update_lead(phone, ia_on_off="ON", status_funil_vendas="em_qualificacao")
+    return JSONResponse({"ok": True, "phone": phone, "ia": status})
+
+
+@router.get("/conversas", response_class=HTMLResponse)
+async def conversas_html(token: str = Query(...), limit: int = Query(20, ge=1, le=200)) -> HTMLResponse:
+    await _check_token(token)
+    html = f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FP Solar — Conversas</title>
+<style>
+:root {{ color-scheme: dark; }}
+* {{ box-sizing: border-box; }}
+body {{ font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+       background: #0b0f17; color: #e6e9ef; margin: 0; padding: 24px; }}
+h1 {{ margin: 0 0 6px; font-size: 22px; }}
+.sub {{ color: #8a93a6; font-size: 13px; margin-bottom: 24px; }}
+.toolbar {{ display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }}
+.toolbar input {{ background: #151a26; border: 1px solid #232a3a; color: #e6e9ef; padding: 8px 12px; border-radius: 8px; font-size: 13px; flex: 1; max-width: 360px; }}
+.toolbar button {{ background: #1f2538; border: 1px solid #232a3a; color: #e6e9ef; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; }}
+.toolbar button:hover {{ background: #2a3149; }}
+.card {{ background: #151a26; border: 1px solid #232a3a; border-radius: 12px; padding: 16px; margin-bottom: 12px;
+         display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }}
+.who {{ display: flex; flex-direction: column; gap: 4px; min-width: 0; }}
+.who .name {{ font-weight: 600; font-size: 15px; }}
+.who .phone {{ color: #8a93a6; font-size: 12px; font-variant-numeric: tabular-nums; }}
+.meta {{ color: #94a3b8; font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; margin-top: 2px; }}
+.meta span {{ white-space: nowrap; }}
+.lastmsg {{ color: #cbd5e1; font-size: 13px; margin-top: 8px; padding: 8px 10px; background: #0f1421; border-radius: 6px;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }}
+.controls {{ display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }}
+.toggle {{ position: relative; display: inline-block; width: 56px; height: 30px; }}
+.toggle input {{ opacity: 0; width: 0; height: 0; }}
+.slider {{ position: absolute; cursor: pointer; inset: 0; background: #4a1d0c; border-radius: 999px; transition: .15s; }}
+.slider::before {{ content: ""; position: absolute; height: 22px; width: 22px; left: 4px; top: 4px;
+                   background: #fb923c; border-radius: 50%; transition: .15s; }}
+.toggle input:checked + .slider {{ background: #103e2c; }}
+.toggle input:checked + .slider::before {{ transform: translateX(26px); background: #4ade80; }}
+.toggle.loading .slider {{ opacity: 0.4; pointer-events: none; }}
+.ia-label {{ font-size: 11px; color: #8a93a6; text-transform: uppercase; letter-spacing: 0.5px; }}
+.status-badge {{ display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+                  background: #1f2538; color: #94a3b8; }}
+.status-badge.novo {{ background: #1e3a5f; color: #93c5fd; }}
+.status-badge.transferido_para_time {{ background: #103e2c; color: #4ade80; }}
+.status-badge.atendimento_humano {{ background: #4a1d0c; color: #fb923c; }}
+.empty {{ color: #6c7588; padding: 40px; text-align: center; }}
+@media (max-width: 640px) {{
+  body {{ padding: 12px; }}
+  .card {{ grid-template-columns: 1fr; }}
+  .controls {{ align-items: flex-start; flex-direction: row; }}
+}}
+</style>
+</head><body>
+<h1>FP Solar — Conversas</h1>
+<div class="sub">Painel de controle de IA por contato</div>
+
+<div class="toolbar">
+  <input id="filter" placeholder="Filtrar por nome ou telefone…">
+  <button onclick="loadConversas()">🔄 Atualizar</button>
+</div>
+
+<div id="container"><div class="empty">Carregando…</div></div>
+
+<script>
+const TOKEN = {repr(token)};
+const LIMIT = {limit};
+
+async function loadConversas() {{
+  const r = await fetch(`/admin/conversas.json?token=${{TOKEN}}&limit=${{LIMIT}}`);
+  const data = await r.json();
+  render(data.conversas);
+}}
+
+function render(list) {{
+  const container = document.getElementById("container");
+  if (!list || list.length === 0) {{
+    container.innerHTML = '<div class="empty">Nenhuma conversa ainda</div>';
+    return;
+  }}
+  container.innerHTML = list.map(c => {{
+    const lastTs = c.ultimo_contato ? new Date(c.ultimo_contato).toLocaleString('pt-BR') : '—';
+    const status = c.status || 'novo';
+    const tipo = c.tipo_projeto || '—';
+    const cidade = c.cidade || '—';
+    const lastMsg = c.ultima_msg_user ? `<div class="lastmsg">"${{escapeHtml(c.ultima_msg_user)}}"</div>` : '';
+    return `
+      <div class="card" data-phone="${{c.telefone}}" data-name="${{escapeHtml(c.nome).toLowerCase()}}">
+        <div class="who">
+          <div class="name">${{escapeHtml(c.nome)}}</div>
+          <div class="phone">📱 ${{c.telefone}}</div>
+          <div class="meta">
+            <span class="status-badge ${{status}}">${{status}}</span>
+            <span>🏠 ${{tipo}}</span>
+            <span>📍 ${{cidade}}</span>
+            <span>💬 ${{c.total_mensagens}} msgs</span>
+            <span>🕐 ${{lastTs}}</span>
+          </div>
+          ${{lastMsg}}
+        </div>
+        <div class="controls">
+          <span class="ia-label">IA ${{c.ia}}</span>
+          <label class="toggle">
+            <input type="checkbox" ${{c.ia === 'ON' ? 'checked' : ''}} onchange="toggleIA('${{c.telefone}}', this)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>`;
+  }}).join('');
+}}
+
+async function toggleIA(phone, checkbox) {{
+  const newStatus = checkbox.checked ? 'ON' : 'OFF';
+  const label = checkbox.parentElement;
+  label.classList.add('loading');
+  try {{
+    const r = await fetch(`/admin/lead/${{phone}}/ia?status=${{newStatus}}&token=${{TOKEN}}`, {{method: 'POST'}});
+    if (!r.ok) throw new Error('falha');
+    // Atualiza label local
+    const card = checkbox.closest('.card');
+    card.querySelector('.ia-label').textContent = `IA ${{newStatus}}`;
+  }} catch (e) {{
+    alert('Erro ao alternar IA: ' + e.message);
+    checkbox.checked = !checkbox.checked;
+  }} finally {{
+    label.classList.remove('loading');
+  }}
+}}
+
+function escapeHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
+
+document.getElementById('filter').addEventListener('input', e => {{
+  const q = e.target.value.toLowerCase().trim();
+  document.querySelectorAll('.card').forEach(card => {{
+    const name = card.dataset.name || '';
+    const phone = card.dataset.phone || '';
+    card.style.display = (name.includes(q) || phone.includes(q)) ? '' : 'none';
+  }});
+}});
+
+loadConversas();
+setInterval(loadConversas, 30000);
+</script>
+</body></html>
+"""
+    return HTMLResponse(html)
+
+
 @router.get("/dashboard.json")
 async def dashboard_json(token: str = Query(...)) -> JSONResponse:
     await _check_token(token)
@@ -206,7 +402,7 @@ ul.funil li {{ padding: 4px 0; }}
 </style>
 </head><body>
 <h1>FP Solar — Lara <span class="refresh">auto-refresh 30s · {stats['now']}</span></h1>
-<div class="sub">Painel de status da aplicação</div>
+<div class="sub">Painel de status · <a href="/admin/conversas?token={settings.admin_token}" style="color:#4ade80">→ Conversas (toggle IA)</a></div>
 
 <div class="section">
   <h2>Health</h2>

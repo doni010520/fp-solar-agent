@@ -34,19 +34,27 @@ async def handle(phone: str, text: str) -> str | None:
     if cmd in ("/reset", "!reset", "/reiniciar", "!reiniciar"):
         return await _full_reset(phone)
 
-    if cmd in ("/ia on", "!ia on", "/ia_on"):
+    if cmd in (
+        "/ia on", "!ia on", "/ia_on",
+        "/ligar", "!ligar", "/ativar", "!ativar", "/retomar", "!retomar",
+    ):
         return await _toggle_ia(phone, "ON")
 
-    if cmd in ("/ia off", "!ia off", "/ia_off"):
+    if cmd in (
+        "/ia off", "!ia off", "/ia_off",
+        "/desligar", "!desligar", "/parar", "!parar",
+        "/pausar", "!pausar", "/silencio", "!silencio", "/silêncio", "!silêncio",
+        "/assumir", "!assumir",
+    ):
         return await _toggle_ia(phone, "OFF")
 
     if cmd in ("/help", "!help", "/ajuda", "!ajuda"):
         return (
-            "🛠️ *Comandos de admin disponíveis:*\n\n"
+            "🛠️ *Comandos disponíveis:*\n\n"
             "• `/limpar` — apaga histórico da conversa\n"
-            "• `/reset` — apaga histórico + reseta seu cadastro (começa do zero)\n"
-            "• `/ia off` — pausa a Lara pra esse número\n"
-            "• `/ia on` — religa a Lara\n"
+            "• `/reset` — apaga histórico + reseta cadastro (começa do zero)\n"
+            "• `/desligar` (ou `/parar`, `/assumir`) — pausa a Lara nesse contato\n"
+            "• `/ligar` (ou `/retomar`) — religa a Lara\n"
             "• `/ajuda` — mostra esta mensagem"
         )
 
