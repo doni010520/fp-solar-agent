@@ -9,6 +9,7 @@ Fluxo (cada mensagem do cliente):
 5. Persiste mensagens e tools executadas, envia resposta via uazapi
 """
 
+import unicodedata
 from loguru import logger
 
 from app.services import contact_updater, openai_service, admin_commands
@@ -18,6 +19,32 @@ from app.core.config import get_settings
 from app.services.uazapi import uazapi
 
 settings = get_settings()
+
+
+# ── Detecção de gatilho de atendimento humano ─────────────
+# Atendente envia uma frase tipo "Olá! Equipe FP Solar aqui" no chat do cliente.
+# A msg vai pro cliente normalmente E desliga a IA.
+# Variações aceitas: ignora acento, case, espaços extras e pontuação.
+_HUMAN_TRIGGERS = [
+    "equipe fp solar",      # "Olá! Equipe FP Solar aqui", "Equipe FP Solar falando"
+    "fp solar aqui",        # "FP Solar aqui!", "Aqui é a FP Solar"
+    "aqui e a fp solar",    # "Olá, aqui é a FP Solar"
+    "aqui da fp solar",     # "Pedro aqui da FP Solar"
+    "atendente fp solar",   # "Atendente FP Solar respondendo"
+    "time fp solar",        # "Time FP Solar aqui"
+]
+
+
+def _normalize(text: str) -> str:
+    """Remove acentos, baixa caixa, normaliza espaços."""
+    nfkd = unicodedata.normalize("NFKD", text)
+    no_accent = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return " ".join(no_accent.lower().split())
+
+
+def _contains_human_trigger(text: str) -> bool:
+    norm = _normalize(text)
+    return any(trig in norm for trig in _HUMAN_TRIGGERS)
 
 
 async def handle_incoming(parsed: dict) -> None:
@@ -41,8 +68,18 @@ async def handle_incoming(parsed: dict) -> None:
     if parsed.get("from_me"):
         message_id = parsed.get("message_id", "")
         logger.info(f"[conv] fromMe phone={phone} msgid={message_id} body={(body or '')[:80]!r}")
+
+        # ── Gatilho explícito de atendimento humano ───────────
+        # Frase que o atendente digita pro cliente assumindo a conversa.
+        # Robusto: case-insensitive, ignora acentos, busca substring.
+        if body and _contains_human_trigger(body):
+            lead_existing = await contact_updater.get_or_create_lead(phone, push_name)
+            if lead_existing.ia_on_off == "ON":
+                await contact_updater.disable_ia(phone, "atendimento_humano")
+                logger.info(f"[conv] gatilho FP Solar detectado phone={phone}, IA OFF")
+            return
+
         # Cache em memória dos messageids que ENVIAMOS via API.
-        # Se o id está lá → eco da Lara (sem race condition, sem heurística).
         if uazapi.is_outbound(message_id):
             return
         # Fallback: olha no DB (caso o cache em memória tenha sido perdido em restart)
