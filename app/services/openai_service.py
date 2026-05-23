@@ -52,9 +52,15 @@ TOOLS = [
                     "resumo_da_solicitacao": {
                         "type": "string",
                         "description": (
-                            "Resumo completo da qualificação: tipo de projeto (residencial/rural/empresarial), "
-                            "tipo de telhado, padrão de energia, cidade, valor médio da conta, e qualquer "
-                            "observação relevante para o vendedor preparar a proposta."
+                            "Resumo COMPLETO da qualificação em texto livre estruturado. "
+                            "DEVE incluir (quando coletado): Tipo de Projeto, Tipo de Telhado, "
+                            "Média da Conta de Luz (R$), Planos de Consumo Futuro, Localização (cidade/UF), "
+                            "Forma de Pagamento, CPF/Renda (se financiamento). "
+                            "SE o cliente mandou foto/PDF da conta de luz, OBRIGATÓRIO incluir uma seção "
+                            "'Dados da Conta de Luz (extraídos da foto)' com: titular, concessionária, "
+                            "mês de referência, consumo do mês em kWh, **histórico dos últimos 12 meses kWh mês a mês**, "
+                            "tipo de ligação (mono/bi/trifásica), valor total da fatura. "
+                            "Esses dados são CRÍTICOS pro dimensionamento — nunca omita se conseguiu extrair."
                         ),
                     },
                 },

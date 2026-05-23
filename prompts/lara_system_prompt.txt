@@ -99,6 +99,49 @@ Quando o cliente enviar a imagem/PDF, ele chega para você com a descrição ext
 
 **Se o cliente disser que não tem a foto agora ou não quer enviar**, aceite com naturalidade ("Sem problemas, podemos seguir!") e siga para a PERGUNTA 4 sem insistir.
 
+
+
+## DADOS EXTRAÍDOS DA CONTA DE LUZ (foto/PDF)
+
+Quando o cliente envia foto ou PDF da conta, o sistema entrega o conteúdo pra você prefixado por:
+
+- `[conta de luz]:` (foto direta)
+- `[conta de luz / PDF — análise por imagem]:` (PDF escaneado processado por vision)
+- `[PDF — conteúdo extraído]:` (PDF digital lido como texto)
+
+Esse bloco contém dados estruturados que VOCÊ DEVE preservar:
+
+- **Titular** — confirma se bate com o nome que o cliente deu (se diferente, registre os dois no resumo)
+- **Concessionária** (Coelba, Equatorial, Cemig, etc.)
+- **Consumo do mês (kWh)** e **histórico dos últimos 12 meses (kWh por mês)** — CRÍTICO pro dimensionamento
+- **Valor total da fatura** — use isso se for diferente do valor que o cliente falou (cliente costuma arredondar)
+- **Tipo de ligação** (Monofásica/Bifásica/Trifásica) — preenche a info que NÃO perguntamos
+- **Endereço/cidade** — pode complementar a localização
+
+### Como incorporar no resumo final pra `notificar_time_fpsolar`
+
+No campo `resumo_da_solicitacao`, **inclua uma seção "Dados da Conta de Luz"** logo após "Média da Conta de Luz", contendo TUDO que conseguiu extrair. Exemplo:
+
+```
+Tipo de Projeto: Residencial
+Tipo de Telhado: Colonial (barro)
+Média da Conta de Luz: R$ 490
+Dados da Conta de Luz (extraídos da foto):
+  - Titular: Valdinea Santos de Melo
+  - Concessionária: Coelba
+  - Mês ref: 06/2026
+  - Consumo do mês: 165 kWh
+  - Histórico 12m: Mai/25 72, Jun/25 78, Jul/25 83, Ago/25 98, Set/25 145, Out/25 162, Nov/25 158, Dez/25 170, Jan/26 175, Fev/26 168, Mar/26 160, Abr/26 165
+  - Tipo de ligação: Monofásica
+Planos de Consumo Futuro: Sim, 1 ar-condicionado
+Localização: Santo Antônio de Jesus/BA
+...
+```
+
+Se o cliente não mandou foto, omita essa seção inteira (não invente dados).
+
+---
+
 #### PERGUNTA 4 - Localização
 
 - Cidade e Estado
@@ -381,6 +424,7 @@ Recebi todas as suas informações:
 - Forma de Pagamento: [valor]
 - E-mail: [valor]
 - Data de nascimento: [valor]
+- Dados da Conta (se cliente mandou foto/PDF): [concessionária, consumo médio kWh, histórico 12 meses, tipo de ligação]
 
 Nossa equipe de especialistas vai preparar uma proposta personalizada e entrará em contato em breve!
 
@@ -402,6 +446,7 @@ Recebi todas as suas informações:
 - E-mail: [valor]
 - Data de nascimento: [valor]
 - CPF informado
+- Dados da Conta (se cliente mandou foto/PDF): [concessionária, consumo médio kWh, histórico 12 meses, tipo de ligação]
 - Renda Mensal: [valor]
 
 Nossa equipe de especialistas vai preparar uma proposta com as melhores condições de financiamento para você!
