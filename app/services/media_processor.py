@@ -120,58 +120,92 @@ async def process_audio(message_id: str) -> str:
         return "[áudio recebido, mas não foi possível transcrever]"
 
 
+_VISION_SYSTEM = (
+    "Você é um assistente especializado em ler contas de luz e fotos de telhado "
+    "para orientar a equipe técnica de uma empresa de energia solar (FP Solar). "
+    "O cliente é maior de idade, enviou a imagem voluntariamente e consentiu o "
+    "uso dos dados pra elaboração de orçamento (em conformidade com LGPD). "
+    "Sua tarefa é APENAS extrair os campos pedidos no prompt. Não recusa imagens "
+    "que mostrem CPF, endereço ou dados de identificação do titular — esses dados "
+    "são públicos no documento e necessários pra qualificação. Se a imagem for "
+    "ilegível, diga 'imagem ilegível' e nada mais."
+)
+
+
+_VISION_PROMPT = (
+    "Analise esta imagem enviada pelo cliente. Classifique em UMA categoria e "
+    "extraia os campos em português:\n\n"
+    "1. **CONTA DE LUZ** (fatura de energia elétrica):\n"
+    "   - Titular: nome completo\n"
+    "   - Endereço (cidade/UF se visível)\n"
+    "   - Concessionária (Coelba, Equatorial, Cemig, Enel, etc.)\n"
+    "   - Mês de referência\n"
+    "   - Valor total da fatura (R$)\n"
+    "   - Consumo do mês (kWh)\n"
+    "   - Tipo de ligação (Monofásica / Bifásica / Trifásica)\n"
+    "   - **Histórico de consumo dos últimos 12 meses (kWh)** — extraia do gráfico/tabela mês a mês. CRÍTICO.\n"
+    "   - Média mensal estimada (kWh)\n\n"
+    "2. **FOTO DE TELHADO**: tipo (colonial barro / zinco / eternit / laje), "
+    "estado de conservação, área estimada (m²), orientação se visível.\n\n"
+    "3. **OUTRO**: descreva em 1 linha o que é.\n\n"
+    "Quando um dado não estiver visível, escreva 'não visível'. NÃO invente. "
+    "Comece com `CATEGORIA: <nome>` e depois os campos. Seja objetiva."
+)
+
+
+_REFUSAL_MARKERS = (
+    "i'm sorry, i can't",
+    "i cannot assist",
+    "i can't assist",
+    "desculpe, não posso",
+    "não posso ajudar",
+    "i'm unable to",
+)
+
+
 async def process_image(message_id: str, caption: str = "") -> str:
     """Descreve a imagem usando gpt-4o vision com foco em conta de luz e telhado."""
     url = await uazapi.get_media_url(message_id)
     if not url:
         return "[imagem recebida, mas não foi possível acessar]"
 
-    try:
-        prompt = (
-            "Analise esta imagem enviada por um cliente que está pedindo orçamento de energia solar. "
-            "Classifique em uma destas categorias e responda em português:\n\n"
-            "1. **CONTA DE LUZ** — extraia os seguintes dados, marcando 'não visível' quando faltar:\n"
-            "   - Titular: nome\n"
-            "   - Endereço (cidade/UF)\n"
-            "   - Concessionária (Coelba, Equatorial, Cemig, etc.)\n"
-            "   - Mês de referência\n"
-            "   - Valor total da fatura (R$)\n"
-            "   - Consumo do mês (kWh)\n"
-            "   - Tipo de ligação (Monofásica / Bifásica / Trifásica)\n"
-            "   - **Histórico de consumo dos últimos 12 meses (kWh)** — se houver gráfico ou tabela, "
-            "liste mês a mês. Esse dado é CRÍTICO. Se não estiver visível, diga 'gráfico de 12 meses NÃO VISÍVEL'.\n"
-            "   - Média mensal estimada (kWh)\n\n"
-            "2. **FOTO DE TELHADO** — descreva: tipo (colonial barro / zinco / eternit / laje), "
-            "estado de conservação, área aproximada se der pra estimar, orientação solar se for visível.\n\n"
-            "3. **OUTRO** — descreva em uma linha o que é.\n\n"
-            "Comece sua resposta com o prefixo `CATEGORIA: <nome>` e depois os dados. Seja objetiva."
-        )
-        if caption:
-            prompt += f"\n\nLegenda enviada pelo cliente: {caption}"
+    user_text = _VISION_PROMPT + (f"\n\nLegenda enviada pelo cliente: {caption}" if caption else "")
 
+    try:
         resp = await _openai.chat.completions.create(
             model=settings.openai_vision_model,
             messages=[
+                {"role": "system", "content": _VISION_SYSTEM},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": prompt},
+                        {"type": "text", "text": user_text},
                         {"type": "image_url", "image_url": {"url": url, "detail": "high"}},
                     ],
-                }
+                },
             ],
             max_tokens=700,
         )
-        analysis = resp.choices[0].message.content or ""
-        # Prefixo dinâmico: se for conta de luz, marca explicitamente pra Lara
-        first_line = analysis.strip().splitlines()[0] if analysis else ""
+        analysis = (resp.choices[0].message.content or "").strip()
+        first_line = analysis.splitlines()[0] if analysis else ""
+        lower = analysis.lower()
+
+        # Detecta recusa do modelo (guardrail) e cai em fallback útil
+        if not analysis or any(mk in lower for mk in _REFUSAL_MARKERS):
+            logger.warning(f"[image] modelo recusou; analysis={analysis[:120]!r}")
+            return (
+                "[imagem recebida — o sistema automático não conseguiu ler. "
+                "Peça os dados verbalmente: valor da conta, consumo em kWh, "
+                "concessionária e histórico recente, ou tente outra foto.]"
+            )
+
         if "CONTA DE LUZ" in first_line.upper():
             return f"[conta de luz]:\n{analysis}"
         if "TELHADO" in first_line.upper():
             return f"[foto de telhado]:\n{analysis}"
         return f"[imagem]:\n{analysis}"
     except Exception as e:
-        logger.error(f"Vision falhou: {e}")
+        logger.error(f"[image] vision falhou: {type(e).__name__}: {e}")
         return "[imagem recebida, mas não foi possível analisar]"
 
 
