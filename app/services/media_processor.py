@@ -116,32 +116,42 @@ async def process_image(message_id: str, caption: str = "") -> str:
 
 async def process_document(message_id: str, caption: str = "") -> str:
     """Baixa e extrai texto de PDF. Outros tipos retornam placeholder."""
-    url = await uazapi.get_media_url(message_id)
+    logger.info(f"[doc] iniciando msgid={message_id}")
+    try:
+        url = await uazapi.get_media_url(message_id)
+    except Exception as e:
+        logger.error(f"[doc] get_media_url raised: {type(e).__name__}: {e}")
+        url = None
     if not url:
+        logger.warning(f"[doc] sem URL pra msgid={message_id}")
         return "[documento recebido, mas não foi possível baixar]"
+    logger.info(f"[doc] URL obtida, baixando…")
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.get(url)
             r.raise_for_status()
             data = r.content
+        logger.info(f"[doc] baixou {len(data)} bytes")
 
         if not (data[:4] == b"%PDF"):
+            logger.info(f"[doc] não é PDF (primeiros bytes: {data[:8]!r})")
             return f"[documento não-PDF recebido: {caption or 'sem legenda'}]"
 
         reader = PdfReader(BytesIO(data))
         pages = []
-        for i, page in enumerate(reader.pages[:10]):  # limita 10 páginas
+        for i, page in enumerate(reader.pages[:10]):
             try:
                 pages.append(page.extract_text() or "")
             except Exception:
                 pages.append("")
         text = "\n".join(pages).strip()
+        logger.info(f"[doc] PDF extraído: {len(reader.pages)} pgs, {len(text)} chars de texto")
         if not text:
             return "[PDF recebido, mas sem texto extraível (possivelmente imagem)]"
         return f"[PDF — conteúdo extraído]:\n{text[:4000]}"
     except Exception as e:
-        logger.error(f"PDF extract falhou: {e}")
+        logger.error(f"[doc] PDF extract falhou: {type(e).__name__}: {e}")
         return "[documento recebido, mas não foi possível processar]"
 
 

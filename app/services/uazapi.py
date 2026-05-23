@@ -129,6 +129,10 @@ class UazapiClient:
             "transcribe": transcribe,
             "generate_mp3": generate_mp3,
         }
+        # Pra transcribe, passa nossa chave OpenAI explicitamente.
+        # uazapi salva na instância e reusa nas próximas chamadas.
+        if transcribe and settings.openai_api_key:
+            payload["openai_apikey"] = settings.openai_api_key
         return await self._post("/message/download", payload)
 
     async def transcribe_audio(self, message_id: str) -> str | None:
