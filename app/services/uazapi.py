@@ -84,7 +84,8 @@ class UazapiClient:
     # ── Presence / Read (UX) ─────────────────────────────────
 
     async def mark_read(self, message_id: str) -> dict | None:
-        return await self._post("/message/markread", {"id": message_id})
+        # Spec uazapi v2: id é array de strings
+        return await self._post("/message/markread", {"id": [message_id]})
 
     async def send_presence(self, phone: str, presence: str = "composing") -> dict | None:
         """presence: composing | recording | paused"""
