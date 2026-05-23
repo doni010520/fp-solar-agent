@@ -16,7 +16,7 @@ from app.services import contact_updater, openai_service, admin_commands
 from app.services.buffer import PendingMessage, buffer
 from app.services.media_processor import process_media
 from app.core.config import get_settings
-from app.services.uazapi import uazapi
+from app.services.uazapi import uazapi, is_outbound
 
 settings = get_settings()
 
@@ -80,7 +80,7 @@ async def handle_incoming(parsed: dict) -> None:
             return
 
         # Cache em memória dos messageids que ENVIAMOS via API.
-        if uazapi.is_outbound(message_id):
+        if is_outbound(message_id):
             return
         # Fallback: olha no DB (caso o cache em memória tenha sido perdido em restart)
         if message_id and await contact_updater.is_our_outbound_message(message_id):
