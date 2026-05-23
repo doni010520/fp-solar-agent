@@ -1,22 +1,44 @@
 """
 Processa mídia recebida no WhatsApp e devolve representação textual para o LLM.
 
-- audio → transcrição via Whisper (uazapi já tem builtin) com fallback OpenAI
-- image → descrição via gpt-4o vision (URL temporária do uazapi)
-- document (pdf) → extração de texto via pypdf
+- audio → download + Whisper OpenAI com language=pt
+- image → gpt-4o vision (classifica conta de luz / telhado / outro)
+- document (pdf):
+    1. pypdf pra texto direto (PDFs digitais)
+    2. fallback: renderiza páginas como imagem via pypdfium2 e usa
+       gpt-4o vision com o mesmo prompt de conta de luz
 """
 
+import base64
 from io import BytesIO
 import httpx
 from loguru import logger
 from openai import AsyncOpenAI
 from pypdf import PdfReader
+import pypdfium2 as pdfium
 
 from app.core.config import get_settings
 from app.services.uazapi import uazapi
 
 settings = get_settings()
 _openai = AsyncOpenAI(api_key=settings.openai_api_key)
+
+
+_BILL_PROMPT = (
+    "Analise esta imagem (página de conta de luz ou documento similar) enviada por um "
+    "cliente que está pedindo orçamento de energia solar. Extraia em português:\n\n"
+    "- Titular (nome)\n"
+    "- Endereço (cidade/UF)\n"
+    "- Concessionária (Coelba, Equatorial, Cemig, etc.)\n"
+    "- Mês de referência\n"
+    "- Valor total da fatura (R$)\n"
+    "- Consumo do mês (kWh)\n"
+    "- Tipo de ligação (Monofásica / Bifásica / Trifásica)\n"
+    "- **Histórico de consumo dos últimos 12 meses (kWh)** — se houver gráfico ou tabela, "
+    "liste mês a mês. Esse dado é CRÍTICO.\n"
+    "- Média mensal estimada (kWh)\n\n"
+    "Quando um dado não estiver visível, escreva 'não visível'. Seja objetiva."
+)
 
 
 async def process_audio(message_id: str) -> str:
@@ -154,7 +176,8 @@ async def process_image(message_id: str, caption: str = "") -> str:
 
 
 async def process_document(message_id: str, caption: str = "") -> str:
-    """Baixa e extrai texto de PDF. Outros tipos retornam placeholder."""
+    """Baixa o documento. Se PDF, tenta pypdf primeiro; se vier vazio
+    (PDF escaneado/imagem), renderiza páginas e chama gpt-4o vision."""
     logger.info(f"[doc] iniciando msgid={message_id}")
     try:
         url = await uazapi.get_media_url(message_id)
@@ -162,9 +185,7 @@ async def process_document(message_id: str, caption: str = "") -> str:
         logger.error(f"[doc] get_media_url raised: {type(e).__name__}: {e}")
         url = None
     if not url:
-        logger.warning(f"[doc] sem URL pra msgid={message_id}")
         return "[documento recebido, mas não foi possível baixar]"
-    logger.info(f"[doc] URL obtida, baixando…")
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -172,26 +193,76 @@ async def process_document(message_id: str, caption: str = "") -> str:
             r.raise_for_status()
             data = r.content
         logger.info(f"[doc] baixou {len(data)} bytes")
+    except Exception as e:
+        logger.error(f"[doc] download URL falhou: {type(e).__name__}: {e}")
+        return "[documento recebido, mas não foi possível baixar]"
 
-        if not (data[:4] == b"%PDF"):
-            logger.info(f"[doc] não é PDF (primeiros bytes: {data[:8]!r})")
-            return f"[documento não-PDF recebido: {caption or 'sem legenda'}]"
+    if data[:4] != b"%PDF":
+        logger.info(f"[doc] não é PDF (primeiros bytes: {data[:8]!r})")
+        return f"[documento não-PDF recebido: {caption or 'sem legenda'}]"
 
+    # 1) Tenta extração de texto direto (PDFs digitais)
+    text = ""
+    n_pages = 0
+    try:
         reader = PdfReader(BytesIO(data))
+        n_pages = len(reader.pages)
         pages = []
-        for i, page in enumerate(reader.pages[:10]):
+        for page in reader.pages[:10]:
             try:
                 pages.append(page.extract_text() or "")
             except Exception:
                 pages.append("")
         text = "\n".join(pages).strip()
-        logger.info(f"[doc] PDF extraído: {len(reader.pages)} pgs, {len(text)} chars de texto")
-        if not text:
-            return "[PDF recebido, mas sem texto extraível (possivelmente imagem)]"
-        return f"[PDF — conteúdo extraído]:\n{text[:4000]}"
+        logger.info(f"[doc] pypdf: {n_pages} pgs, {len(text)} chars")
     except Exception as e:
-        logger.error(f"[doc] PDF extract falhou: {type(e).__name__}: {e}")
-        return "[documento recebido, mas não foi possível processar]"
+        logger.error(f"[doc] pypdf falhou: {type(e).__name__}: {e}")
+
+    # Se texto é razoável (>120 chars), retorna direto
+    if len(text) >= 120:
+        return f"[PDF — conteúdo extraído]:\n{text[:6000]}"
+
+    # 2) PDF é imagem (ou só com pouco texto) → renderiza com pypdfium2 + vision
+    logger.info(f"[doc] PDF sem texto suficiente, usando vision…")
+    try:
+        analysis = await _pdf_to_vision_summary(data)
+        logger.info(f"[doc] vision OK ({len(analysis)} chars)")
+        return f"[conta de luz / PDF — análise por imagem]:\n{analysis}"
+    except Exception as e:
+        logger.exception(f"[doc] vision PDF falhou: {type(e).__name__}: {e}")
+        return "[PDF recebido, mas não foi possível extrair o conteúdo]"
+
+
+async def _pdf_to_vision_summary(pdf_bytes: bytes, max_pages: int = 4) -> str:
+    """Renderiza as primeiras max_pages do PDF em PNG e chama gpt-4o vision.
+    Retorna análise textual consolidada."""
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    n = min(len(pdf), max_pages)
+
+    images_b64: list[str] = []
+    for i in range(n):
+        page = pdf[i]
+        # scale=2 → ~200dpi, bom equilíbrio entre qualidade e tamanho
+        pil = page.render(scale=2).to_pil()
+        buf = BytesIO()
+        pil.save(buf, format="PNG", optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        images_b64.append(b64)
+
+    # Monta payload de vision: prompt único + N imagens
+    content: list = [{"type": "text", "text": _BILL_PROMPT + f"\n\n(O PDF tem {len(pdf)} páginas; analisando as {n} primeiras.)"}]
+    for b64 in images_b64:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"},
+        })
+
+    resp = await _openai.chat.completions.create(
+        model=settings.openai_vision_model,
+        messages=[{"role": "user", "content": content}],
+        max_tokens=900,
+    )
+    return (resp.choices[0].message.content or "").strip()
 
 
 async def process_media(message_type: str, message_id: str, caption: str = "") -> str:
