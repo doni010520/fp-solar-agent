@@ -232,22 +232,23 @@ class UazapiClient:
 
 
 def _normalize_message_type(raw_type: str) -> str:
+    """Normaliza messageType da uazapi. Case-insensitive — a uazapi às vezes
+    manda 'AudioMessage' (maiúsculo) em vez de 'audioMessage'."""
     mapping = {
         "conversation": "text",
-        "Conversation": "text",
-        "extendedTextMessage": "text",
-        "imageMessage": "image",
-        "videoMessage": "video",
-        "audioMessage": "audio",
-        "pttMessage": "audio",
-        "documentMessage": "document",
-        "documentWithCaptionMessage": "document",
-        "stickerMessage": "sticker",
-        "contactMessage": "contact",
-        "locationMessage": "location",
-        "reactionMessage": "reaction",
+        "extendedtextmessage": "text",
+        "imagemessage": "image",
+        "videomessage": "video",
+        "audiomessage": "audio",
+        "pttmessage": "audio",
+        "documentmessage": "document",
+        "documentwithcaptionmessage": "document",
+        "stickermessage": "sticker",
+        "contactmessage": "contact",
+        "locationmessage": "location",
+        "reactionmessage": "reaction",
     }
-    return mapping.get(raw_type, raw_type)
+    return mapping.get((raw_type or "").lower(), raw_type)
 
 
 uazapi = UazapiClient()
