@@ -20,40 +20,79 @@ _openai = AsyncOpenAI(api_key=settings.openai_api_key)
 
 
 async def process_audio(message_id: str) -> str:
-    """Tenta transcrição embutida do uazapi; se falhar, baixa e usa Whisper OpenAI."""
+    """Baixa o áudio do uazapi e transcreve via Whisper OpenAI (language=pt).
+
+    Estratégia: NÃO usa a transcrição embutida do uazapi (Whisper sem hint
+    de idioma estava interpretando PT-BR como inglês). Baixamos o áudio e
+    chamamos a API do Whisper diretamente passando language='pt'.
+    """
     logger.info(f"[audio] iniciando transcrição msgid={message_id}")
-    try:
-        transcription = await uazapi.transcribe_audio(message_id)
-    except Exception as e:
-        logger.error(f"[audio] transcribe_audio raised: {type(e).__name__}: {e}")
-        transcription = None
 
-    if transcription:
-        logger.info(f"[audio] uazapi transcreveu ({len(transcription)} chars)")
-        return f"[áudio transcrito]: {transcription}"
-
-    logger.warning(f"[audio] uazapi transcribe vazio/falho msgid={message_id}; tentando OpenAI Whisper")
+    # Baixa o áudio (preferindo URL pra economizar memória; fallback base64)
+    url = None
+    audio_bytes: bytes | None = None
+    mimetype = "audio/ogg"
     try:
-        url = await uazapi.get_media_url(message_id)
+        result = await uazapi.download_media(
+            message_id=message_id,
+            return_link=True,
+            return_base64=False,
+            transcribe=False,
+            generate_mp3=False,  # OGG é o formato nativo do WhatsApp
+        )
+        if result:
+            url = result.get("fileURL")
+            mimetype = result.get("mimetype") or mimetype
     except Exception as e:
-        logger.error(f"[audio] get_media_url raised: {type(e).__name__}: {e}")
-        url = None
+        logger.error(f"[audio] download_media raised: {type(e).__name__}: {e}")
+
     if not url:
-        logger.warning(f"[audio] sem URL pra baixar msgid={message_id}")
-        return "[áudio recebido, mas não foi possível transcrever]"
+        # Tenta direto em base64 como fallback
+        try:
+            result = await uazapi.download_media(
+                message_id=message_id, return_base64=True, return_link=False
+            )
+            if result and result.get("base64Data"):
+                import base64
+                audio_bytes = base64.b64decode(result["base64Data"])
+                mimetype = result.get("mimetype") or mimetype
+                logger.info(f"[audio] obtido via base64 ({len(audio_bytes)} bytes)")
+        except Exception as e:
+            logger.error(f"[audio] base64 fallback raised: {type(e).__name__}: {e}")
+
+    if url and not audio_bytes:
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                audio_bytes = r.content
+            logger.info(f"[audio] baixou {len(audio_bytes)} bytes da URL")
+        except Exception as e:
+            logger.error(f"[audio] download from URL falhou: {type(e).__name__}: {e}")
+
+    if not audio_bytes:
+        return "[áudio recebido, mas não foi possível baixar]"
+
+    # Escolhe extensão coerente com o mimetype pra Whisper aceitar
+    ext = "ogg"
+    if "mp3" in mimetype or "mpeg" in mimetype:
+        ext = "mp3"
+    elif "wav" in mimetype:
+        ext = "wav"
+    elif "m4a" in mimetype or "mp4" in mimetype:
+        ext = "m4a"
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            audio_bytes = r.content
-        logger.info(f"[audio] baixou {len(audio_bytes)} bytes, chamando Whisper")
         result = await _openai.audio.transcriptions.create(
             model=settings.openai_transcribe_model,
-            file=("audio.ogg", audio_bytes, "audio/ogg"),
+            file=(f"audio.{ext}", audio_bytes, mimetype),
+            language="pt",
         )
-        logger.info(f"[audio] Whisper OK ({len(result.text)} chars)")
-        return f"[áudio transcrito]: {result.text}"
+        text = (result.text or "").strip()
+        logger.info(f"[audio] Whisper OK ({len(text)} chars) text={text[:120]!r}")
+        if not text:
+            return "[áudio recebido, mas a transcrição veio vazia]"
+        return f"[áudio transcrito]: {text}"
     except Exception as e:
         logger.error(f"[audio] Whisper falhou: {type(e).__name__}: {e}")
         return "[áudio recebido, mas não foi possível transcrever]"
