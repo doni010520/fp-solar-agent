@@ -137,20 +137,19 @@ def _build_context_header(lead: Lead) -> str:
 
     if nome_uso:
         diretiva_nome = (
-            f"- **NOME DO CLIENTE: \"{nome_uso}\"** — JÁ SABEMOS o nome. "
-            f"USE \"{nome_uso}\" em TODAS as saudações e respostas. "
-            f"**NÃO pergunte o nome de novo.**"
+            f"- Nome do cliente: \"{nome_uso}\". Use na saudação inicial e quando ficar natural na conversa "
+            f"(não precisa repetir em toda mensagem). Não pergunte o nome de novo."
         )
     else:
         diretiva_nome = (
-            f"- **Nome do cliente AINDA NÃO INFORMADO** (push_name='{lead.push_name or ''}'). "
-            f"**Pergunte o nome no primeiro turno**, sem usar nenhum nome até o cliente responder."
+            f"- Nome do cliente ainda não informado (push_name='{lead.push_name or ''}'). "
+            f"Pergunte com naturalidade no primeiro turno."
         )
 
     return (
         f"# CONTEXTO DA CONVERSA\n"
         f"- Data/Hora: {now.strftime('%A, %d/%m/%Y %H:%M')}\n"
-        f"- **Saudação correta agora: \"{saudacao}\"** — use EXATAMENTE essa saudação ao abrir a conversa.\n"
+        f"- Saudação adequada agora: \"{saudacao}\" (use no primeiro contato; não precisa repetir).\n"
         f"- WhatsApp: {lead.telefone}\n"
         f"{diretiva_nome}\n"
     )
