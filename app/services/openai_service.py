@@ -52,15 +52,16 @@ TOOLS = [
                     "resumo_da_solicitacao": {
                         "type": "string",
                         "description": (
-                            "Resumo COMPLETO da qualificação em texto livre estruturado. "
-                            "DEVE incluir (quando coletado): Tipo de Projeto, Tipo de Telhado, "
-                            "Média da Conta de Luz (R$), Planos de Consumo Futuro, Localização (cidade/UF), "
-                            "Forma de Pagamento, CPF/Renda (se financiamento). "
-                            "SE o cliente mandou foto/PDF da conta de luz, OBRIGATÓRIO incluir uma seção "
-                            "'Dados da Conta de Luz (extraídos da foto)' com: titular, concessionária, "
-                            "mês de referência, consumo do mês em kWh, **histórico dos últimos 12 meses kWh mês a mês**, "
-                            "tipo de ligação (mono/bi/trifásica), valor total da fatura. "
-                            "Esses dados são CRÍTICOS pro dimensionamento — nunca omita se conseguiu extrair."
+                            "Resumo da qualificação em texto livre estruturado. Inclua os campos coletados:\n"
+                            "- Cidade/Estado\n"
+                            "- Rede elétrica (Monofásica / Bifásica / Trifásica / não informado)\n"
+                            "- Valor médio da conta de luz (R$)\n"
+                            "- Consumo futuro previsto (ar-condicionado, piscina, bomba, etc. ou 'sem mudança')\n"
+                            "- Forma de pagamento (Financiamento / Cartão / À vista)\n"
+                            "Se o cliente enviou foto/PDF da conta, inclua a seção 'Dados da Conta de Luz' com: "
+                            "titular, concessionária, mês de referência, consumo do mês em kWh, "
+                            "histórico dos últimos 12 meses (mês a mês), tipo de ligação, valor total. "
+                            "Esses dados da foto são críticos pro dimensionamento — inclua se conseguiu extrair."
                         ),
                     },
                 },
