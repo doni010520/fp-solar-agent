@@ -214,6 +214,7 @@ async def chat(lead: Lead, user_text: str, history: list[Message]) -> tuple[str,
             }
         )
 
+        terminal_tool_called = False
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
@@ -231,6 +232,13 @@ async def chat(lead: Lead, user_text: str, history: list[Message]) -> tuple[str,
                     "content": json.dumps(result, ensure_ascii=False),
                 }
             )
+            # Tools terminais: desligaram a IA, não continuamos o loop.
+            # Devolve a mensagem de transição que a LLM já gerou junto com a tool_call.
+            if tc.function.name in ("notify_qualified_lead", "request_human"):
+                terminal_tool_called = True
+
+        if terminal_tool_called:
+            return (msg.content or "").strip(), tools_executed
 
     logger.warning(f"chat hit max_iters para lead {lead.telefone}")
     return "Tudo certo! Já encaminhei suas informações para a nossa equipe. 🙌", tools_executed
