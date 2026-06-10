@@ -32,6 +32,8 @@ _HUMAN_TRIGGERS = [
     "aqui da fp solar",     # "Pedro aqui da FP Solar"
     "atendente fp solar",   # "Atendente FP Solar respondendo"
     "time fp solar",        # "Time FP Solar aqui"
+    "ygor aqui",            # "Ygor aqui." — assinatura do atendente
+    "felipe aqui",          # "Felipe aqui." — assinatura do atendente
 ]
 
 
