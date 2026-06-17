@@ -214,7 +214,7 @@ async def chat(lead: Lead, user_text: str, history: list[Message]) -> tuple[str,
             }
         )
 
-        terminal_tool_called = False
+        terminal_tool_name: str | None = None
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
@@ -232,13 +232,30 @@ async def chat(lead: Lead, user_text: str, history: list[Message]) -> tuple[str,
                     "content": json.dumps(result, ensure_ascii=False),
                 }
             )
-            # Tools terminais: desligaram a IA, não continuamos o loop.
-            # Devolve a mensagem de transição que a LLM já gerou junto com a tool_call.
             if tc.function.name in ("notify_qualified_lead", "request_human"):
-                terminal_tool_called = True
+                terminal_tool_name = tc.function.name
 
-        if terminal_tool_called:
-            return (msg.content or "").strip(), tools_executed
+        if terminal_tool_name:
+            reply = (msg.content or "").strip()
+            # Fallback OBRIGATÓRIO: cliente PRECISA ver uma mensagem de fechamento.
+            # Se a LLM chamou a tool sem texto, geramos uma padrão pra não deixar
+            # o cliente "no vácuo".
+            if not reply:
+                if terminal_tool_name == "notify_qualified_lead":
+                    reply = (
+                        "Com as informações que você enviou já conseguimos ter uma boa "
+                        "base pra proposta. Nossa equipe vai analisar os dados e preparar "
+                        "a melhor condição pro seu projeto. Em breve um consultor da "
+                        "FP Solar entra em contato com você 😊"
+                    )
+                else:  # request_human
+                    reply = (
+                        "Vou pedir pra um especialista do nosso time entrar em contato "
+                        "direto com você pra continuar o atendimento, tudo bem? "
+                        "Em breve eles te chamam por aqui 😊"
+                    )
+                logger.info(f"[chat] fallback de despedida usado pra {terminal_tool_name}")
+            return reply, tools_executed
 
     logger.warning(f"chat hit max_iters para lead {lead.telefone}")
     return "Tudo certo! Já encaminhei suas informações para a nossa equipe. 🙌", tools_executed
