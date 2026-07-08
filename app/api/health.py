@@ -6,6 +6,14 @@ from app.services.uazapi import uazapi
 router = APIRouter()
 
 
+@router.get("/live")
+async def live() -> dict:
+    """Liveness barato — só confirma que o processo está respondendo.
+    NÃO toca em DB nem em rede externa. Usado pelo Docker HEALTHCHECK
+    pra evitar restart loops causados por blip do uazapi ou DB."""
+    return {"status": "ok"}
+
+
 @router.get("/health")
 async def health() -> dict:
     checks: dict = {"app": "ok"}
