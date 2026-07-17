@@ -24,6 +24,10 @@ engine = create_async_engine(
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
         "prepared_statement_name_func": _ps_name,
+        # Timeout mais tolerante: pooler do Supabase às vezes leva
+        # 5-10s pra abrir conexão nova sob carga.
+        "timeout": 30,
+        "command_timeout": 30,
     },
 )
 
