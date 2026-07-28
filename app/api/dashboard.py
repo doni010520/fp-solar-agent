@@ -128,6 +128,33 @@ async def _collect_stats() -> dict:
     }
 
 
+@router.post("/run-followups")
+async def run_followups(token: str = Query(...)) -> JSONResponse:
+    """Executa manualmente uma sweep de follow-ups.
+    Também roda automaticamente a cada 15min via scheduler interno."""
+    await _check_token(token)
+    from app.services import follow_up_service
+    result = await follow_up_service.run_batch()
+    return JSONResponse(result)
+
+
+@router.get("/followups.json")
+async def followups_json(token: str = Query(...), limit: int = Query(30, ge=1, le=200)) -> JSONResponse:
+    """Últimos N follow-ups enviados."""
+    await _check_token(token)
+    async with AsyncSessionLocal() as s:
+        rows = (await s.execute(text("""
+          SELECT f.tentativa, f.mensagem, f.enviado_em, f.sucesso, f.erro,
+                 l.telefone, coalesce(l.full_name, l.push_name, '(sem nome)') as nome,
+                 l.status_funil_vendas, l.ia_on_off
+          FROM follow_ups f JOIN leads l ON l.id = f.lead_id
+          ORDER BY f.enviado_em DESC LIMIT :limit
+        """), {"limit": limit})).mappings().all()
+    return JSONResponse({"follow_ups": [
+        {**dict(r), "enviado_em": r["enviado_em"].isoformat()} for r in rows
+    ]})
+
+
 @router.get("/logs")
 async def logs_tail(
     token: str = Query(...),
